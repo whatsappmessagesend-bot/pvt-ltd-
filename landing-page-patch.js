@@ -79,9 +79,21 @@
       }
     }
 
+    /*
+      -----------------------------------------
+      1. UNIQUE TRACKING ID
+      -----------------------------------------
+    */
+
     if (!data.tracking_id) {
       data.tracking_id = createTrackingId();
     }
+
+    /*
+      -----------------------------------------
+      2. PAGE / REFERRER
+      -----------------------------------------
+    */
 
     data.landing_page = window.location.href;
 
@@ -90,6 +102,12 @@
       data.referrer ||
       null;
 
+    /*
+      -----------------------------------------
+      3. FBCLID
+      -----------------------------------------
+    */
+
     const urlFbclid = getParam("fbclid");
 
     if (urlFbclid) {
@@ -97,6 +115,17 @@
     } else if (!data.fbclid) {
       data.fbclid = null;
     }
+
+    /*
+      -----------------------------------------
+      4. FBC
+      Priority:
+      URL fbc
+      -> _fbc cookie
+      -> previously saved fbc
+      -> derive from fbclid
+      -----------------------------------------
+    */
 
     const urlFbc = getParam("fbc");
     const cookieFbc = getCookie("_fbc");
@@ -115,6 +144,16 @@
       data.fbc = null;
     }
 
+    /*
+      -----------------------------------------
+      5. FBP
+      Priority:
+      URL fbp
+      -> _fbp cookie
+      -> previously saved fbp
+      -----------------------------------------
+    */
+
     const urlFbp = getParam("fbp");
     const cookieFbp = getCookie("_fbp");
 
@@ -125,6 +164,12 @@
     } else if (!data.fbp) {
       data.fbp = null;
     }
+
+    /*
+      -----------------------------------------
+      6. UTM PARAMETERS
+      -----------------------------------------
+    */
 
     data.utm_source =
       getParam("utm_source") ||
@@ -151,6 +196,12 @@
       data.utm_term ||
       null;
 
+    /*
+      -----------------------------------------
+      7. META CAMPAIGN IDENTIFIERS
+      -----------------------------------------
+    */
+
     data.campaign_id =
       getParam("campaign_id") ||
       data.campaign_id ||
@@ -166,8 +217,20 @@
       data.ad_id ||
       null;
 
+    /*
+      -----------------------------------------
+      8. TIMESTAMP
+      -----------------------------------------
+    */
+
     data.updated_at =
       new Date().toISOString();
+
+    /*
+      -----------------------------------------
+      SAVE ATTRIBUTION
+      -----------------------------------------
+    */
 
     safeSessionSet(
       "landing_attribution",
@@ -214,6 +277,10 @@
         );
       }
 
+      /*
+        Save the unique Telegram invite
+      */
+
       attribution.telegram_invite =
         result.telegram_invite;
 
@@ -224,6 +291,11 @@
         "landing_attribution",
         JSON.stringify(attribution)
       );
+
+      /*
+        Replace ALL Telegram links
+        with the unique tracking invite.
+      */
 
       const telegramLinks =
         document.querySelectorAll(
@@ -312,6 +384,12 @@
               }
             }
 
+            /*
+              If unique Telegram invite
+              is already ready, allow
+              normal navigation.
+            */
+
             if (
               attribution.telegram_invite &&
               link.href ===
@@ -330,6 +408,11 @@
 
               return;
             }
+
+            /*
+              Backend link is not ready yet.
+              Stop navigation temporarily.
+            */
 
             event.preventDefault();
 
@@ -359,6 +442,12 @@
 
             } else {
 
+              /*
+                Backend failed.
+                Use original Telegram
+                destination as fallback.
+              */
+
               window.location.href =
                 originalHref;
             }
@@ -371,11 +460,30 @@
 
   function start() {
 
+    /*
+      Capture Meta attribution
+      immediately on landing.
+    */
+
     getAttribution();
+
+    /*
+      Prepare unique Telegram
+      invite immediately.
+    */
 
     prepareTelegramLink();
 
+    /*
+      Attach Telegram CTA handler.
+    */
+
     attachClickProtection();
+
+    /*
+      Catch buttons/links that may
+      appear shortly after page load.
+    */
 
     setTimeout(
       function () {
