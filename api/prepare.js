@@ -1,7 +1,9 @@
 
 function json(res, status, body) {
-  res.status(status);
-  res.setHeader("Content-Type", "application/json");
+  res
+    .status(status)
+    .setHeader("Content-Type", "application/json");
+
   res.end(JSON.stringify(body));
 }
 
@@ -11,8 +13,7 @@ function clean(value, max = 2000) {
     : null;
 }
 
-const TELEGRAM_CHANNEL_ID =
-  process.env.TELEGRAM_CHANNEL_ID || "-1003944904464";
+const TELEGRAM_CHANNEL_ID = "-1003944904464";
 
 async function supabaseRequest(path, options = {}) {
   const url = process.env.SUPABASE_URL;
@@ -38,6 +39,7 @@ async function supabaseRequest(path, options = {}) {
   );
 
   const text = await response.text();
+
   let data = null;
 
   try {
@@ -76,6 +78,7 @@ async function telegramRequest(method, body) {
   );
 
   const text = await response.text();
+
   let data = null;
 
   try {
@@ -95,7 +98,67 @@ async function telegramRequest(method, body) {
   return data.result;
 }
 
-async function createTrackingInviteLink(trackingId) {
+async function verifyTelegramAccess() {
+  const me = await telegramRequest(
+    "getMe",
+    {}
+  );
+
+  const chat = await telegramRequest(
+    "getChat",
+    {
+      chat_id: TELEGRAM_CHANNEL_ID
+    }
+  );
+
+  const member = await telegramRequest(
+    "getChatMember",
+    {
+      chat_id: TELEGRAM_CHANNEL_ID,
+      user_id: me.id
+    }
+  );
+
+  if (
+    member.status !== "administrator" &&
+    member.status !== "creator"
+  ) {
+    throw new Error(
+      `Telegram bot is not administrator. Status: ${member.status}`
+    );
+  }
+
+  if (
+    member.status === "administrator" &&
+    member.can_invite_users !== true
+  ) {
+    throw new Error(
+      "Telegram bot does not have can_invite_users permission"
+    );
+  }
+
+  console.log(
+    "Telegram verified:",
+    JSON.stringify({
+      bot_id: me.id,
+      bot_username: me.username || null,
+      chat_id: chat.id,
+      chat_title: chat.title || null,
+      chat_type: chat.type,
+      member_status: member.status,
+      can_invite_users:
+        member.can_invite_users === true
+    })
+  );
+
+  return me;
+}
+
+async function createTrackingInviteLink(
+  trackingId
+) {
+  await verifyTelegramAccess();
+
   const safeId = String(trackingId)
     .replace(/[^A-Za-z0-9_-]/g, "")
     .slice(0, 24);
@@ -106,15 +169,25 @@ async function createTrackingInviteLink(trackingId) {
     Math.floor(Date.now() / 1000) +
     7 * 24 * 60 * 60;
 
-  const invite = await telegramRequest(
-    "createChatInviteLink",
-    {
-      chat_id: TELEGRAM_CHANNEL_ID,
-      name: inviteName,
-      expire_date: expireDate,
-      creates_join_request: true
-    }
-  );
+  /*
+   * IMPORTANT:
+   * creates_join_request = true
+   *
+   * User will remain PENDING until
+   * a channel administrator approves them.
+   *
+   * member_limit is intentionally NOT used.
+   */
+  const invite =
+    await telegramRequest(
+      "createChatInviteLink",
+      {
+        chat_id: TELEGRAM_CHANNEL_ID,
+        name: inviteName,
+        expire_date: expireDate,
+        creates_join_request: true
+      }
+    );
 
   if (!invite?.invite_link) {
     throw new Error(
@@ -125,7 +198,10 @@ async function createTrackingInviteLink(trackingId) {
   return invite;
 }
 
-export default async function handler(req, res) {
+export default async function handler(
+  req,
+  res
+) {
   if (req.method !== "POST") {
     return json(res, 405, {
       ok: false,
@@ -148,11 +224,16 @@ export default async function handler(req, res) {
       });
     }
 
-    const existingInvite = await supabaseRequest(
-      `telegram_invites?select=tracking_id,invite_link,is_revoked&tracking_id=eq.${encodeURIComponent(
-        trackingId
-      )}&is_revoked=eq.false&limit=1`
-    );
+    /*
+     * Reuse an existing active invite
+     * for the same tracking ID.
+     */
+    const existingInvite =
+      await supabaseRequest(
+        `telegram_invites?select=tracking_id,invite_link,is_revoked&tracking_id=eq.${encodeURIComponent(
+          trackingId
+        )}&is_revoked=eq.false&limit=1`
+      );
 
     if (
       existingInvite &&
@@ -168,6 +249,9 @@ export default async function handler(req, res) {
       });
     }
 
+    /*
+     * Save Meta / UTM attribution.
+     */
     const landingRow = {
       tracking_id: trackingId,
 
@@ -181,9 +265,20 @@ export default async function handler(req, res) {
         2000
       ),
 
-      fbclid: clean(body.fbclid, 500),
-      fbc: clean(body.fbc, 500),
-      fbp: clean(body.fbp, 500),
+      fbclid: clean(
+        body.fbclid,
+        500
+      ),
+
+      fbc: clean(
+        body.fbc,
+        500
+      ),
+
+      fbp: clean(
+        body.fbp,
+        500
+      ),
 
       utm_source: clean(
         body.utm_source,
@@ -234,14 +329,23 @@ export default async function handler(req, res) {
           Prefer:
             "resolution=merge-duplicates,return=minimal"
         },
-        body: JSON.stringify(landingRow)
+        body: JSON.stringify(
+          landingRow
+        )
       }
     );
 
-    const invite = await createTrackingInviteLink(
-      trackingId
-    );
+    /*
+     * Create unique Telegram join-request invite.
+     */
+    const invite =
+      await createTrackingInviteLink(
+        trackingId
+      );
 
+    /*
+     * Save invite attribution.
+     */
     await supabaseRequest(
       "telegram_invites",
       {
@@ -251,10 +355,16 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           tracking_id: trackingId,
-          invite_link: invite.invite_link,
-          invite_name: invite.name || null,
+
+          invite_link:
+            invite.invite_link,
+
+          invite_name:
+            invite.name || null,
+
           telegram_channel_id:
             TELEGRAM_CHANNEL_ID,
+
           is_revoked: false
         })
       }
@@ -262,20 +372,33 @@ export default async function handler(req, res) {
 
     return json(res, 200, {
       ok: true,
-      tracking_id: trackingId,
-      telegram_invite: invite.invite_link,
+
+      tracking_id:
+        trackingId,
+
+      telegram_invite:
+        invite.invite_link,
+
       creates_join_request:
         invite.creates_join_request === true,
+
       reused: false
     });
 
   } catch (error) {
-    console.error("Prepare error:", error);
+    console.error(
+      "Prepare error:",
+      error
+    );
 
     return json(res, 500, {
       ok: false,
-      error: "prepare_failed",
-      detail: error.message
+
+      error:
+        "prepare_failed",
+
+      detail:
+        error.message
     });
   }
 }
