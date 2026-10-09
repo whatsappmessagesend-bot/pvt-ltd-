@@ -95,59 +95,7 @@ async function telegramRequest(method, body) {
   return data.result;
 }
 
-async function verifyTelegramAccess() {
-  const me = await telegramRequest("getMe", {});
-
-  const chat = await telegramRequest("getChat", {
-    chat_id: TELEGRAM_CHANNEL_ID
-  });
-
-  const member = await telegramRequest(
-    "getChatMember",
-    {
-      chat_id: TELEGRAM_CHANNEL_ID,
-      user_id: me.id
-    }
-  );
-
-  if (
-    member.status !== "administrator" &&
-    member.status !== "creator"
-  ) {
-    throw new Error(
-      `Telegram bot is not administrator. Status: ${member.status}`
-    );
-  }
-
-  if (
-    member.status === "administrator" &&
-    member.can_invite_users !== true
-  ) {
-    throw new Error(
-      "Telegram bot does not have can_invite_users permission"
-    );
-  }
-
-  console.log(
-    "Telegram verified:",
-    JSON.stringify({
-      bot_id: me.id,
-      bot_username: me.username || null,
-      chat_id: chat.id,
-      chat_title: chat.title || null,
-      chat_type: chat.type,
-      member_status: member.status,
-      can_invite_users:
-        member.can_invite_users === true
-    })
-  );
-
-  return me;
-}
-
 async function createTrackingInviteLink(trackingId) {
-  await verifyTelegramAccess();
-
   const safeId = String(trackingId)
     .replace(/[^A-Za-z0-9_-]/g, "")
     .slice(0, 24);
@@ -330,4 +278,4 @@ export default async function handler(req, res) {
       detail: error.message
     });
   }
-      }
+}
