@@ -13,7 +13,7 @@ function clean(value, max = 2000) {
     : null;
 }
 
-const TELEGRAM_CHANNEL_ID = "-1003944904464";
+const TELEGRAM_CHANNEL_ID = "-1003957009499";
 
 async function supabaseRequest(path, options = {}) {
   const url = process.env.SUPABASE_URL;
